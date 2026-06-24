@@ -412,6 +412,18 @@ async def advance_question(ctx, sid, session):
 
 async def end_game(ctx, sid, session):
     session["state"] = "ended"
+
+    # If no partner joined yet, just cancel cleanly
+    if not session["partner_id"]:
+        await ctx.bot.send_message(
+            chat_id=session["admin_id"],
+            text="❌ Game cancelled. Send /start to create a new one!",
+            parse_mode="Markdown"
+        )
+        user_session.pop(session["admin_id"], None)
+        sessions.pop(sid, None)
+        return
+
     admin_score = session["scores"]["admin"]
     partner_score = session["scores"]["partner"]
     admin_name = session["admin_name"]
@@ -426,7 +438,6 @@ async def end_game(ctx, sid, session):
 
     msg = (
         f"🎮 *Game Over!*\n\n"
-        f"You made it through all the questions!\n\n"
         f"📊 *Scoreboard:*\n"
         f"  {admin_name}: {admin_score} answered\n"
         f"  {partner_name}: {partner_score} answered\n\n"
@@ -436,7 +447,11 @@ async def end_game(ctx, sid, session):
 
     for role in ["admin", "partner"]:
         pid = player_id(session, role)
-        await ctx.bot.send_message(chat_id=pid, text=msg, parse_mode="Markdown")
+        if pid:
+            try:
+                await ctx.bot.send_message(chat_id=pid, text=msg, parse_mode="Markdown")
+            except Exception:
+                pass
 
     # Clean up
     user_session.pop(session["admin_id"], None)
@@ -504,6 +519,19 @@ async def endgame(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     await end_game(ctx, sid, session)
 
 
+# ── /reset ────────────────────────────────────────────────────────────────────
+
+async def reset(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    session, sid = get_session_by_user(user.id)
+    if session:
+        user_session.pop(session.get("admin_id"), None)
+        user_session.pop(session.get("partner_id"), None)
+        sessions.pop(sid, None)
+    ctx.user_data.clear()
+    await update.message.reply_text("🔄 Session cleared! Send /start to create a fresh game.")
+
+
 # ── /score ────────────────────────────────────────────────────────────────────
 
 async def score(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -559,6 +587,7 @@ def main():
 
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("endgame", endgame))
+    app.add_handler(CommandHandler("reset", reset))
     app.add_handler(CommandHandler("score", score))
     app.add_handler(CommandHandler("help", help_cmd))
     app.add_handler(CallbackQueryHandler(mode_chosen, pattern=r"^mode_"))
